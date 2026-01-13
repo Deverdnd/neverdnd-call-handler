@@ -7,36 +7,64 @@ const supabase = createClient(
 )
 
 // Cache for AI config
-let configCache = null
-let configLastFetch = 0
+let configCache = new Map()
+let configLastFetch = new Map()
 const CONFIG_CACHE_TTL = 5 * 60 * 1000
 
-async function getAIConfig() {
+async function getAIConfig(toNumber) {
+  const cacheKey = toNumber || 'default'
   const now = Date.now()
-  if (configCache && (now - configLastFetch) < CONFIG_CACHE_TTL) {
-    return configCache
+  
+  if (configCache.has(cacheKey) && (now - (configLastFetch.get(cacheKey) || 0)) < CONFIG_CACHE_TTL) {
+    return configCache.get(cacheKey)
   }
   
   try {
-    const { data, error } = await supabase
-      .from('ai_config')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(1)
+    // First, try to find business by phone number
+    const { data: businessData } = await supabase
+      .from('businesses')
+      .select('id, name')
+      .eq('phone_number', toNumber)
       .single()
     
-    if (error) throw error
+    let config
+    if (businessData) {
+      // Get business-specific config
+      const { data, error } = await supabase
+        .from('ai_config')
+        .select('*')
+        .eq('business_id', businessData.id)
+        .single()
+      
+      if (data) {
+        config = data
+      }
+    }
     
-    configCache = data
-    configLastFetch = now
-    return data
+    // If no business-specific config, use default
+    if (!config) {
+      const { data } = await supabase
+        .from('ai_config')
+        .select('*')
+        .is('business_id', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+      
+      config = data || {
+        business_info: "We are available to help you.",
+        tone: "professional"
+      }
+    }
+    
+    configCache.set(cacheKey, config)
+    configLastFetch.set(cacheKey, now)
+    return config
   } catch (error) {
     console.error('Error fetching AI config:', error)
     return {
-      greeting: "Hi!",
-      business_info: "We are available 24/7.",
-      tone: "professional",
-      additional_instructions: ""
+      business_info: "We are available to help you.",
+      tone: "professional"
     }
   }
 }
@@ -49,11 +77,12 @@ module.exports = async (req, res) => {
 
   const callSid = req.body.CallSid || req.query.CallSid
   const userSaid = req.body.SpeechResult || 'nothing'
+  const toNumber = req.query.To || req.body.To
   
-  console.log('🗣️  CallSid:', callSid, 'User said:', userSaid)
+  console.log('🗣️  CallSid:', callSid, 'User said:', userSaid, 'To:', toNumber)
   
-  // Get AI configuration
-  const config = await getAIConfig()
+  // Get AI configuration based on the number being called
+  const config = await getAIConfig(toNumber)
   const businessInfo = config.business_info || "We are available to help you."
   
   const baseUrl = `https://${req.headers.host}`
@@ -84,7 +113,7 @@ module.exports = async (req, res) => {
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="Polly.Joanna">${response}</Say>
-  <Gather input="speech" timeout="5" speechTimeout="auto" action="${baseUrl}/api/conversation?CallSid=${callSid}">
+  <Gather input="speech" timeout="5" speechTimeout="auto" action="${baseUrl}/api/conversation?CallSid=${callSid}&To=${encodeURIComponent(toNumber || '')}">
     <Say voice="Polly.Joanna">I'm still listening...</Say>
   </Gather>
   <Say voice="Polly.Joanna">Thanks for calling! Have a great day!</Say>
