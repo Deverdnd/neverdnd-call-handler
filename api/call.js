@@ -1,4 +1,6 @@
 const { createClient } = require('@supabase/supabase-js')
+const { checkRateLimit } = require('../lib/rateLimit')
+const logger = require('../lib/logger')
 
 // Initialize Supabase
 const supabase = createClient(
@@ -81,7 +83,20 @@ module.exports = async (req, res) => {
   const from = req.body.From
   const to = req.body.To
 
-  console.log('📞 Incoming call - CallSid:', callSid, 'From:', from, 'To:', to)
+  // Rate limiting by phone number
+  const rateLimit = checkRateLimit(from)
+  if (!rateLimit.allowed) {
+    logger.warn('Rate limit exceeded', { from, callSid })
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">We're sorry, but you've made too many calls in a short time. Please try again later.</Say>
+  <Hangup/>
+</Response>`
+    res.setHeader('Content-Type', 'text/xml')
+    return res.status(429).send(twiml)
+  }
+
+  logger.info('Incoming call', { callSid, from, to, remainingRequests: rateLimit.remaining })
   
   // Get AI configuration based on the number being called
   const config = await getAIConfig(to)
