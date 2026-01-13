@@ -1,4 +1,5 @@
 const { createClient } = require('@supabase/supabase-js')
+const { sendSMS } = require('../lib/sms')
 
 // Initialize Supabase
 const supabase = createClient(
@@ -90,6 +91,37 @@ module.exports = async (req, res) => {
         console.error('❌ Database error:', error)
       } else {
         console.log('✅ Call saved to database! ID:', data[0]?.id)
+        
+        // Send SMS notification to business owner
+        try {
+          const { data: business } = await supabase
+            .from('businesses')
+            .select('name, notification_phone, notify_on_call')
+            .eq('phone_number', to)
+            .single()
+          
+          if (business && business.notification_phone && business.notify_on_call) {
+            const minutes = Math.floor(parseInt(callDuration) / 60)
+            const seconds = parseInt(callDuration) % 60
+            const durationText = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`
+            
+            const smsMessage = `📞 New Call - ${business.name}
+
+From: ***${from.slice(-4)}
+Duration: ${durationText}
+Time: ${new Date().toLocaleTimeString()}
+
+Summary: ${summary}
+
+View details: https://admin-nu-flame.vercel.app`
+            
+            await sendSMS(business.notification_phone, smsMessage)
+            console.log('✅ SMS notification sent')
+          }
+        } catch (smsError) {
+          console.error('⚠️  SMS notification failed:', smsError)
+          // Don't fail the whole request if SMS fails
+        }
       }
       
       // Clean up memory
