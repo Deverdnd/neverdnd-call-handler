@@ -1,5 +1,4 @@
-const { startCall, addToTranscript } = require('../lib/callTracker')
-
+// Simplified call handler - just starts the call
 module.exports = (req, res) => {
   if (req.method !== 'POST') {
     return res.status(405).send('Method not allowed')
@@ -9,17 +8,11 @@ module.exports = (req, res) => {
   const from = req.body.From
   const to = req.body.To
 
-  console.log('📞 Incoming call from:', from, 'CallSid:', callSid)
-  
-  // Start tracking this call
-  startCall(callSid, req.body)
+  console.log('📞 Incoming call - CallSid:', callSid, 'From:', from)
   
   const baseUrl = `https://${req.headers.host}`
   
   const greeting = "Hi! Thanks for calling Never D N D, your A I phone answering service. How can I help you today?"
-  
-  // Add AI greeting to transcript
-  addToTranscript(callSid, 'AI', greeting)
   
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>

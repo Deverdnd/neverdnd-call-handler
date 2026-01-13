@@ -1,5 +1,4 @@
-const { addToTranscript } = require('../lib/callTracker')
-
+// Simplified conversation handler
 module.exports = (req, res) => {
   if (req.method !== 'POST') {
     return res.status(405).send('Method not allowed')
@@ -8,12 +7,7 @@ module.exports = (req, res) => {
   const callSid = req.body.CallSid || req.query.CallSid
   const userSaid = req.body.SpeechResult || 'nothing'
   
-  console.log('🗣️  User said:', userSaid, 'CallSid:', callSid)
-  
-  // Add user speech to transcript
-  if (callSid) {
-    addToTranscript(callSid, 'Caller', userSaid)
-  }
+  console.log('🗣️  CallSid:', callSid, 'User said:', userSaid)
   
   const baseUrl = `https://${req.headers.host}`
   
@@ -36,11 +30,6 @@ module.exports = (req, res) => {
     response = "Thanks for calling! Have a wonderful day!"
   } else {
     response = "Thanks for that. How else can I help you today?"
-  }
-  
-  // Add AI response to transcript
-  if (callSid) {
-    addToTranscript(callSid, 'AI', response)
   }
   
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
