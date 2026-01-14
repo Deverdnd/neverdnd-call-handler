@@ -109,12 +109,17 @@ module.exports = async (req, res) => {
       .single()
     
     business = businessData
+    logger.info('Business found', { businessName: business?.name, aiMode: business?.ai_routing_mode })
   } catch (error) {
     logger.warn('No business found for number', { to })
   }
   
+  // TEMPORARY: Force AI routing for debugging
+  logger.info('FORCING AI ROUTING FOR DEBUGGING')
+  const shouldForward = false; // Force to false for testing
+  
   // Check if we should route to AI or forward to business
-  if (business && business.forward_number && !shouldRouteToAI(business)) {
+  if (shouldForward) {
     // Forward to business phone
     logger.info('Forwarding to business phone', { forwardTo: business.forward_number })
     
