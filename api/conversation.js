@@ -1,5 +1,7 @@
 const { createClient } = require('@supabase/supabase-js')
 const { generateAIResponse } = require('../lib/ai')
+const { canUseScheduling } = require('../lib/subscriptions')
+const { processAppointmentScheduling } = require('../lib/appointment-handler')
 const logger = require('../lib/logger')
 
 const supabase = createClient(
@@ -80,10 +82,31 @@ module.exports = async (req, res) => {
   const callSid = req.body.CallSid || req.query.CallSid
   const userSaid = req.body.SpeechResult || 'nothing'
   const toNumber = req.query.To || req.body.To
+  const fromNumber = req.body.From || req.query.From
   
   logger.info('User spoke', { callSid, userSaid })
   
   const config = await getAIConfig(toNumber)
+  
+  // Get business ID and check scheduling capability
+  let businessId = null
+  let hasScheduling = false
+  
+  try {
+    const { data: businessData } = await supabase
+      .from('businesses')
+      .select('id')
+      .eq('phone_number', toNumber)
+      .single()
+    
+    if (businessData) {
+      businessId = businessData.id
+      hasScheduling = await canUseScheduling(businessId)
+      logger.info('Business scheduling capability', { businessId, hasScheduling })
+    }
+  } catch (error) {
+    logger.warn('Could not determine business scheduling capability', { error: error.message })
+  }
   
   // Get conversation history for this call
   if (!conversationHistory.has(callSid)) {
@@ -91,13 +114,34 @@ module.exports = async (req, res) => {
   }
   const history = conversationHistory.get(callSid)
   
-  // Generate AI response using GPT-4
-  const response = await generateAIResponse(userSaid, config, history)
+  // Generate AI response with scheduling awareness
+  const response = await generateAIResponse(userSaid, config, history, hasScheduling)
+  
+  // Check if response contains appointment scheduling
+  let finalResponse = response
+  if (hasScheduling && businessId) {
+    const appointmentResult = await processAppointmentScheduling(
+      callSid,
+      businessId,
+      response,
+      fromNumber
+    )
+    
+    if (appointmentResult && appointmentResult.success) {
+      // Replace the scheduling block with confirmation message
+      finalResponse = response.replace(/SCHEDULE_APPOINTMENT[\s\S]*?END_APPOINTMENT/g, '')
+      finalResponse += ' ' + appointmentResult.confirmationMessage
+      logger.info('Appointment scheduled successfully', { 
+        callSid, 
+        appointmentId: appointmentResult.appointmentId 
+      })
+    }
+  }
   
   // Update conversation history
   history.push(
     { role: 'user', content: userSaid },
-    { role: 'assistant', content: response }
+    { role: 'assistant', content: finalResponse }
   )
   
   // Keep only last 10 exchanges
@@ -111,8 +155,8 @@ module.exports = async (req, res) => {
   
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Joanna">${response}</Say>
-  <Gather input="speech" timeout="5" speechTimeout="auto" action="${baseUrl}/api/conversation?CallSid=${callSid}&To=${encodeURIComponent(toNumber || '')}">
+  <Say voice="Polly.Joanna">${finalResponse}</Say>
+  <Gather input="speech" timeout="5" speechTimeout="auto" action="${baseUrl}/api/conversation?CallSid=${callSid}&To=${encodeURIComponent(toNumber || '')}&From=${encodeURIComponent(fromNumber || '')}">
     <Say voice="Polly.Joanna">I'm listening...</Say>
   </Gather>
   <Say voice="Polly.Joanna">Thanks for calling! Have a great day!</Say>
