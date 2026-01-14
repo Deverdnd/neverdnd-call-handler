@@ -128,10 +128,11 @@ module.exports = async (req, res) => {
   }
   
   // Otherwise, route to AI
-  logger.info('Routing to AI', { business: business?.name || 'default' })
+  logger.info('Routing to AI', { business: business?.name || 'default', businessId: business?.id, toNumber: to })
   
   // Get AI configuration based on the number being called
   const config = await getAIConfig(to)
+  logger.info('AI Config loaded', { greeting: config?.greeting, businessInfo: config?.business_info })
   const greeting = config.greeting || "Hi! Thanks for calling. How can I help you today?"
   
   const baseUrl = `https://${req.headers.host}`
