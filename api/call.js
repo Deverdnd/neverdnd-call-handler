@@ -1,5 +1,6 @@
 const { createClient } = require('@supabase/supabase-js')
 const { checkRateLimit } = require('../lib/rateLimit')
+const { shouldRouteToAI } = require('../lib/business-hours')
 const logger = require('../lib/logger')
 
 // Initialize Supabase
@@ -97,6 +98,37 @@ module.exports = async (req, res) => {
   }
 
   logger.info('Incoming call', { callSid, from, to, remainingRequests: rateLimit.remaining })
+  
+  // Get business configuration
+  let business = null
+  try {
+    const { data: businessData } = await supabase
+      .from('businesses')
+      .select('*')
+      .eq('phone_number', to)
+      .single()
+    
+    business = businessData
+  } catch (error) {
+    logger.warn('No business found for number', { to })
+  }
+  
+  // Check if we should route to AI or forward to business
+  if (business && business.forward_number && !shouldRouteToAI(business)) {
+    // Forward to business phone
+    logger.info('Forwarding to business phone', { forwardTo: business.forward_number })
+    
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial callerId="${to}">${business.forward_number}</Dial>
+</Response>`
+    
+    res.setHeader('Content-Type', 'text/xml')
+    return res.status(200).send(twiml)
+  }
+  
+  // Otherwise, route to AI
+  logger.info('Routing to AI', { business: business?.name || 'default' })
   
   // Get AI configuration based on the number being called
   const config = await getAIConfig(to)
