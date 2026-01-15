@@ -69,6 +69,23 @@ module.exports = async (req, res) => {
       const summary = await generateSummary(transcriptText)
       console.log('✅ Summary generated:', summary)
       
+      // Get business ID for this phone number
+      let businessId = null
+      try {
+        const { data: businessData } = await supabase
+          .from('businesses')
+          .select('id')
+          .eq('phone_number', to)
+          .single()
+        
+        if (businessData) {
+          businessId = businessData.id
+          console.log('✅ Found business ID:', businessId)
+        }
+      } catch (err) {
+        console.warn('⚠️  No business found for number:', to)
+      }
+      
       // Save to database
       console.log('💾 Inserting into database...')
       const { data, error } = await supabase
@@ -81,7 +98,7 @@ module.exports = async (req, res) => {
           transcript: transcriptText,
           summary: summary,
           recording_url: recordingUrl,
-          business_id: null,
+          business_id: businessId,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
