@@ -76,16 +76,17 @@ async function getAIConfig(toNumber) {
 
 // Simplified call handler - just starts the call
 module.exports = async (req, res) => {
-  if (req.method !== 'POST') {
-    return res.status(405).send('Method not allowed')
-  }
+  try {
+    if (req.method !== 'POST') {
+      return res.status(405).send('Method not allowed')
+    }
 
-  const callSid = req.body.CallSid
-  const from = req.body.From
-  const to = req.body.To
+    const callSid = req.body.CallSid
+    const from = req.body.From
+    const to = req.body.To
 
-  // Rate limiting by phone number
-  const rateLimit = checkRateLimit(from)
+    // Rate limiting by phone number
+    const rateLimit = checkRateLimit(from)
   if (!rateLimit.allowed) {
     logger.warn('Rate limit exceeded', { from, callSid })
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -154,4 +155,17 @@ module.exports = async (req, res) => {
 
   res.setHeader('Content-Type', 'text/xml')
   res.status(200).send(twiml)
+  } catch (error) {
+    logger.error('CRITICAL ERROR in call handler', { error: error.message, stack: error.stack })
+    
+    // Send error TwiML to prevent "application error" message
+    const errorTwiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">We're sorry, but we're experiencing technical difficulties. Please try again later.</Say>
+  <Hangup/>
+</Response>`
+    
+    res.setHeader('Content-Type', 'text/xml')
+    res.status(200).send(errorTwiml)
+  }
 }
