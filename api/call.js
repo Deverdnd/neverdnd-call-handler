@@ -9,10 +9,10 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 )
 
-// Cache for AI config (refresh every 5 minutes)
+// Cache for AI config (refresh every 30 seconds for quick updates)
 let configCache = new Map()
 let configLastFetch = new Map()
-const CONFIG_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+const CONFIG_CACHE_TTL = 30 * 1000 // 30 seconds
 
 async function getAIConfig(toNumber) {
   const cacheKey = toNumber || 'default'
