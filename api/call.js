@@ -10,6 +10,7 @@ const supabase = createClient(
 )
 
 // Cache for AI config (refresh every 30 seconds for quick updates)
+// Last updated: 2026-01-16 01:10 UTC
 let configCache = new Map()
 let configLastFetch = new Map()
 const CONFIG_CACHE_TTL = 30 * 1000 // 30 seconds
