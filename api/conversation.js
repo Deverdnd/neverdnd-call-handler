@@ -9,45 +9,71 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 )
 
-// Cache for AI config
-let configCache = new Map()
-let configLastFetch = new Map()
-const CONFIG_CACHE_TTL = 5 * 60 * 1000
-
+// ALWAYS fetch fresh config - NO CACHING to prevent stale data
 // Store conversation history per call
 const conversationHistory = new Map()
 
 async function getAIConfig(toNumber) {
-  const cacheKey = toNumber || 'default'
-  const now = Date.now()
-  
-  if (configCache.has(cacheKey) && (now - (configLastFetch.get(cacheKey) || 0)) < CONFIG_CACHE_TTL) {
-    return configCache.get(cacheKey)
-  }
-  
   try {
-    const { data: businessData } = await supabase
+    logger.info('[Conversation] Fetching AI config', { toNumber })
+    
+    const { data: businessData, error: businessError } = await supabase
       .from('businesses')
       .select('id, name')
       .eq('phone_number', toNumber)
       .single()
     
+    if (businessError) {
+      logger.warn('[Conversation] Business lookup failed', { toNumber, error: businessError.message })
+    }
+    
     let config
     if (businessData) {
+      logger.info('[Conversation] Business found', { businessId: businessData.id })
+      
       const { data, error } = await supabase
         .from('ai_config')
         .select('*')
         .eq('business_id', businessData.id)
         .single()
       
-      if (data) {
+      if (error) {
+        logger.warn('[Conversation] Config lookup failed', { error: error.message })
+      } else if (data) {
+        logger.info('[Conversation] Business config loaded')
         config = data
       }
     }
     
     if (!config) {
+      logger.info('[Conversation] Loading default config')
       const { data } = await supabase
         .from('ai_config')
+        .select('*')
+        .is('business_id', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+      
+      config = data || {
+        greeting: "Hi! Thanks for calling. How can I help you today?",
+        business_info: "We are available to help you.",
+        tone: "professional",
+        additional_instructions: ""
+      }
+    }
+    
+    return config
+  } catch (error) {
+    logger.error('[Conversation] Error fetching config', { error: error.message })
+    return {
+      greeting: "Hi! Thanks for calling. How can I help you today?",
+      business_info: "We are available to help you.",
+      tone: "professional",
+      additional_instructions: ""
+    }
+  }
+}
         .select('*')
         .is('business_id', null)
         .order('created_at', { ascending: false })

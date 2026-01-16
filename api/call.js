@@ -9,30 +9,26 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 )
 
-// Cache for AI config (refresh every 30 seconds for quick updates)
-// Last updated: 2026-01-16 01:10 UTC
-let configCache = new Map()
-let configLastFetch = new Map()
-const CONFIG_CACHE_TTL = 30 * 1000 // 30 seconds
-
+// ALWAYS fetch fresh config - NO CACHING to prevent stale data
 async function getAIConfig(toNumber) {
-  const cacheKey = toNumber || 'default'
-  const now = Date.now()
-  
-  if (configCache.has(cacheKey) && (now - (configLastFetch.get(cacheKey) || 0)) < CONFIG_CACHE_TTL) {
-    return configCache.get(cacheKey)
-  }
-  
   try {
+    logger.info('Fetching AI config', { toNumber })
+    
     // First, try to find business by phone number
-    const { data: businessData } = await supabase
+    const { data: businessData, error: businessError } = await supabase
       .from('businesses')
       .select('id, name')
       .eq('phone_number', toNumber)
       .single()
     
+    if (businessError) {
+      logger.warn('Business lookup failed', { toNumber, error: businessError.message })
+    }
+    
     let config
     if (businessData) {
+      logger.info('Business found', { businessId: businessData.id, businessName: businessData.name })
+      
       // Get business-specific config
       const { data, error } = await supabase
         .from('ai_config')
@@ -40,13 +36,17 @@ async function getAIConfig(toNumber) {
         .eq('business_id', businessData.id)
         .single()
       
-      if (data) {
+      if (error) {
+        logger.warn('Business config lookup failed', { businessId: businessData.id, error: error.message })
+      } else if (data) {
+        logger.info('Business config found', { greeting: data.greeting })
         config = data
       }
     }
     
     // If no business-specific config, use default
     if (!config) {
+      logger.info('Loading default config')
       const { data } = await supabase
         .from('ai_config')
         .select('*')
@@ -56,17 +56,16 @@ async function getAIConfig(toNumber) {
         .single()
       
       config = data || {
-        greeting: "Hi! Thanks for calling Never D N D. How can I help you today?",
-        business_info: "We are available 24/7.",
+        greeting: "Hi! Thanks for calling. How can I help you today?",
+        business_info: "We are available to help you.",
         tone: "professional"
       }
+      logger.info('Using fallback config', { greeting: config.greeting })
     }
     
-    configCache.set(cacheKey, config)
-    configLastFetch.set(cacheKey, now)
     return config
   } catch (error) {
-    console.error('Error fetching AI config:', error)
+    logger.error('Error fetching AI config', { error: error.message })
     return {
       greeting: "Hi! Thanks for calling. How can I help you today?",
       business_info: "We are available to help you.",
