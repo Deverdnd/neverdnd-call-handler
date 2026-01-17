@@ -10,34 +10,23 @@ const supabase = createClient(
 )
 
 // ALWAYS fetch fresh config - NO CACHING to prevent stale data
-async function getAIConfig(toNumber) {
+async function getAIConfig(toNumber, businessId) {
   try {
-    logger.info('Fetching AI config', { toNumber })
-    
-    // First, try to find business by phone number
-    const { data: businessData, error: businessError } = await supabase
-      .from('businesses')
-      .select('id, name')
-      .eq('phone_number', toNumber)
-      .single()
-    
-    if (businessError) {
-      logger.warn('Business lookup failed', { toNumber, error: businessError.message })
-    }
+    logger.info('Fetching AI config', { toNumber, businessId })
     
     let config
-    if (businessData) {
-      logger.info('Business found', { businessId: businessData.id, businessName: businessData.name })
+    if (businessId) {
+      logger.info('Loading business-specific config', { businessId })
       
       // Get business-specific config
       const { data, error } = await supabase
         .from('ai_config')
         .select('*')
-        .eq('business_id', businessData.id)
+        .eq('business_id', businessId)
         .single()
       
       if (error) {
-        logger.warn('Business config lookup failed', { businessId: businessData.id, error: error.message })
+        logger.warn('Business config lookup failed', { businessId, error: error.message })
       } else if (data) {
         logger.info('Business config found', { greeting: data.greeting })
         config = data
@@ -103,16 +92,19 @@ module.exports = async (req, res) => {
   // Get business configuration
   let business = null
   try {
+    // For now, since we have one Twilio number serving one business,
+    // just get the first active business
     const { data: businessData } = await supabase
       .from('businesses')
       .select('*')
-      .eq('phone_number', to)
+      .order('created_at', { ascending: false })
+      .limit(1)
       .single()
     
     business = businessData
-    logger.info('Business found', { businessName: business?.name, aiMode: business?.ai_routing_mode })
+    logger.info('Business found', { businessId: business?.id, businessName: business?.name, aiMode: business?.ai_routing_mode })
   } catch (error) {
-    logger.warn('No business found for number', { to })
+    logger.warn('No business found', { error: error.message })
   }
   
   // TEMPORARY: Force AI routing for debugging
@@ -136,8 +128,8 @@ module.exports = async (req, res) => {
   // Otherwise, route to AI
   logger.info('Routing to AI', { business: business?.name || 'default', businessId: business?.id, toNumber: to })
   
-  // Get AI configuration based on the number being called
-  const config = await getAIConfig(to)
+  // Get AI configuration for this business
+  const config = await getAIConfig(to, business?.id)
   logger.info('AI Config loaded', { greeting: config?.greeting, businessInfo: config?.business_info })
   const greeting = config.greeting || "Hi! Thanks for calling. How can I help you today?"
   

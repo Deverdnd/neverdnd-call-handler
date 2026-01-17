@@ -119,10 +119,12 @@ module.exports = async (req, res) => {
   let hasScheduling = false
   
   try {
+    // Get the first/only business (since we have one Twilio number for one business)
     const { data: businessData } = await supabase
       .from('businesses')
       .select('id')
-      .eq('phone_number', toNumber)
+      .order('created_at', { ascending: false })
+      .limit(1)
       .single()
     
     if (businessData) {
